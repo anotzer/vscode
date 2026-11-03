@@ -68,8 +68,9 @@ suite('Files - ExplorerView', () => {
 		assert.deepStrictEqual(getContext([], [s3, s1, s4], true, noNavigationController), [s3, s1, s4]);
 	});
 
-	suite('context menu', () => {
+	suite('tree interactions', () => {
 		let view: TestExplorerView;
+		let configurationService: TestConfigurationService;
 		let tree: WorkbenchCompressibleAsyncDataTree<ExplorerItem | ExplorerItem[], ExplorerItem, FuzzyScore>;
 		let menu: IContextMenuMenuDelegate | undefined;
 		let menuShown: Emitter<void>;
@@ -99,8 +100,9 @@ suite('Files - ExplorerView', () => {
 			controllers = new Map();
 			refreshGate = undefined;
 
+			configurationService = new TestConfigurationService({ explorer: { autoReveal: false, compactFolders: false } });
 			const instantiationService = workbenchInstantiationService({
-				configurationService: () => new TestConfigurationService({ explorer: { autoReveal: false, compactFolders: false } }),
+				configurationService: () => configurationService,
 			}, ds);
 			instantiationService.stub(IViewDescriptorService, {
 				onDidChangeLocation: Event.None,
@@ -186,6 +188,104 @@ suite('Files - ExplorerView', () => {
 				dispose: () => { },
 			});
 			view.renderForTesting(container);
+		});
+
+		suite('collapse children', () => {
+			let child: ExplorerItem;
+			let grandchild: ExplorerItem;
+
+			setup(async () => {
+				child = new ExplorerItem(joinPath(folder.resource, 'child'), fileService, configService, NullFilesConfigurationService, folder, true);
+				grandchild = new ExplorerItem(joinPath(child.resource, 'grandchild'), fileService, configService, NullFilesConfigurationService, child, true);
+				const file = new ExplorerItem(joinPath(grandchild.resource, 'file.txt'), fileService, configService, NullFilesConfigurationService, grandchild);
+				folder.addChild(child);
+				child.addChild(grandchild);
+				grandchild.addChild(file);
+				await tree.updateChildren(folder);
+				await tree.expand(child);
+				await tree.expand(grandchild);
+			});
+
+			test('preserves descendant expansion by default', async () => {
+				tree.collapse(folder);
+				await tree.expand(folder);
+
+				assert.deepStrictEqual([tree.isCollapsed(child), tree.isCollapsed(grandchild)], [false, false]);
+			});
+
+			test('collapses descendants when enabled and keeps them collapsed after reopening the parent', async () => {
+				await configurationService.setUserConfiguration('explorer.collapseChildren', true);
+
+				tree.collapse(folder);
+				const hidden = [tree.isCollapsed(child), tree.isCollapsed(grandchild)];
+				await tree.expand(folder);
+
+				assert.deepStrictEqual({ hidden, reopened: [tree.isCollapsed(child), tree.isCollapsed(grandchild)] }, {
+					hidden: [true, true],
+					reopened: [true, true],
+				});
+			});
+
+			test('applies setting changes to the next collapse, including descendants hidden by a collapsed child', async () => {
+				await configurationService.setUserConfiguration('explorer.collapseChildren', false);
+				tree.collapse(child);
+				const beforeEnabling = tree.isCollapsed(grandchild);
+
+				await configurationService.setUserConfiguration('explorer.collapseChildren', true);
+				tree.collapse(folder);
+				const afterEnabling = tree.isCollapsed(grandchild);
+				await tree.expand(folder);
+				await tree.expand(child);
+				await tree.expand(grandchild);
+
+				await configurationService.setUserConfiguration('explorer.collapseChildren', false);
+				tree.collapse(folder);
+				await tree.expand(folder);
+
+				assert.deepStrictEqual({ beforeEnabling, afterEnabling, afterDisabling: [tree.isCollapsed(child), tree.isCollapsed(grandchild)] }, {
+					beforeEnabling: false,
+					afterEnabling: true,
+					afterDisabling: [false, false],
+				});
+			});
+
+			test('collapses descendants of a compact folder chain', async () => {
+				await configurationService.setUserConfiguration('explorer.collapseChildren', true);
+				const descendant = new ExplorerItem(joinPath(grandchild.resource, 'descendant'), fileService, configService, NullFilesConfigurationService, grandchild, true);
+				const file = new ExplorerItem(joinPath(descendant.resource, 'file.txt'), fileService, configService, NullFilesConfigurationService, descendant);
+				grandchild.addChild(descendant);
+				descendant.addChild(file);
+				await tree.updateChildren(grandchild);
+				await tree.expand(descendant);
+				tree.updateOptions({ compressionEnabled: true });
+
+				const compressed = tree.getCompressedTreeNode(child)?.elements.map(node => node.element);
+				tree.collapse(child);
+				await tree.expand(child);
+
+				assert.deepStrictEqual({ compressed, descendantCollapsed: tree.isCollapsed(descendant) }, {
+					compressed: [child, grandchild],
+					descendantCollapsed: true,
+				});
+			});
+
+			test('preserves explicit recursive collapse without duplicate collapse events', async () => {
+				await configurationService.setUserConfiguration('explorer.collapseChildren', true);
+				const changes: { name: string; deep: boolean }[] = [];
+				ds.add(tree.onDidChangeCollapseState(e => {
+					const item = e.node.element?.element;
+					if (item instanceof ExplorerItem) {
+						changes.push({ name: item.name, deep: e.deep });
+					}
+				}));
+
+				tree.collapse(folder, true);
+
+				assert.deepStrictEqual({ changes, collapsed: [tree.isCollapsed(folder), tree.isCollapsed(child), tree.isCollapsed(grandchild)] }, {
+					changes: [{ name: 'folder', deep: false }, { name: 'child', deep: true }, { name: 'grandchild', deep: true }],
+					collapsed: [true, true, true],
+				});
+			});
 		});
 
 		test('waits for a newly queued tree refresh before selecting a folder', async () => {

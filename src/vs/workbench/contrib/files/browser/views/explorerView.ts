@@ -632,6 +632,9 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 
 		this._register(this.tree.onDidChangeCollapseState(e => {
 			const element = e.node.element?.element;
+			if (e.node.collapsed && !e.deep && element instanceof ExplorerItem && element.isDirectory && this.configurationService.getValue<boolean>('explorer.collapseChildren')) {
+				this.tree.collapse(element, true);
+			}
 			if (element) {
 				const navigationControllers = this.renderer.getCompressedNavigationController(Array.isArray(element) ? element[0] : element);
 				navigationControllers?.forEach(controller => controller.updateCollapsed(e.node.collapsed));

@@ -99,6 +99,7 @@ export interface IFilesConfiguration extends PlatformIFilesConfiguration, IWorkb
 		confirmDelete: boolean;
 		enableUndo: boolean;
 		confirmUndo: UndoConfirmLevel;
+		collapseChildren: boolean;
 		expandSingleFolderWorkspaces: boolean;
 		sortOrder: SortOrder;
 		sortOrderLexicographicOptions: LexicographicOptions;

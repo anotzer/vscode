@@ -519,6 +519,11 @@ configurationRegistry.registerConfiguration({
 				nls.localize('enableUndo.light', 'Explorer will not prompt before undo operations when focused.'),
 			],
 		},
+		'explorer.collapseChildren': {
+			'type': 'boolean',
+			'description': nls.localize('collapseChildren', "Controls whether collapsing a folder in the Explorer also collapses all of its subfolders."),
+			'default': false
+		},
 		'explorer.expandSingleFolderWorkspaces': {
 			'type': 'boolean',
 			'description': nls.localize('expandSingleFolderWorkspaces', "Controls whether the Explorer should expand multi-root workspaces containing only one folder during initialization"),
